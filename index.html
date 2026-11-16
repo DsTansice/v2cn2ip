@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>v2rayN 节点批量替换与 IP 反向提取器</title>
+<script defer src="https://tj.076666.xyz/qft.js" data-website-id="c3855664-f7e8-4007-88f6-1549d10acf99"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 960px; margin: 24px auto; padding: 0 16px; background: #f5f7fa; color: #1f2328; }
+  h2 { border-bottom: 2px solid #0969da; padding-bottom: 8px; }
+  .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+  label { font-weight: 600; display: block; margin-bottom: 6px; }
+  input[type="text"], textarea { width: 100%; box-sizing: border-box; font-family: Consolas, Monaco, monospace; font-size: 13px; padding: 8px; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 12px; }
+  textarea { height: 160px; resize: vertical; }
+  .row { display: flex; gap: 16px; }
+  .col { flex: 1; }
+  .btn-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  button { background: #0969da; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  button:hover { background: #0860ca; }
+  button:disabled { background: #8c959f; cursor: not-allowed; }
+  button.secondary { background: #2da44e; }
+  button.secondary:hover { background: #2c974b; }
+  button.outline { background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; }
+  button.outline:hover { background: #f3f4f6; }
+  .hint { font-size: 12px; color: #57606a; margin-top: -8px; margin-bottom: 12px; }
+  .status-text { font-size: 12px; color: #0969da; }
+
+  /* 折叠抽屉面板样式 */
+  .api-drawer { display: none; margin-top: 12px; padding: 12px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; }
+  .api-drawer.open { display: block; }
+  .input-group { display: flex; gap: 8px; margin-bottom: 8px; }
+  .input-group input[type="text"] { margin-bottom: 0; flex: 1; background: #fff; }
+  .api-drawer .hint { margin-top: 0; margin-bottom: 0; }
+
+  footer { text-align: center; margin-top: 32px; padding-top: 16px; border-top: 1px solid #d0d7de; font-size: 13px; color: #57606a; }
+  footer a { color: #0969da; text-decoration: none; margin: 0 8px; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h2>v2rayN 优选 IP 批量替换 & 反向提取工具</h2>
+
+<!-- 模块一：IP 批量生成节点 -->
+<div class="card">
+  <h3>1. 正向生成：IP:端口 批量替换进节点链接</h3>
+
+  <label>模板节点链接（支持 vless://、trojan://、vmess://）：</label>
+  <input type="text" id="templateLink" placeholder="例如: vless://uuid@example.com:443?encryption=none&security=tls&sni=example.com&type=ws#备注">
+  <div class="hint">自动识别并替换链接中的地址和端口（仅替换底层连接地址，保留原有 SNI / Host 伪装域名），并在备注后追加 IP:端口 方便区分。</div>
+
+  <div class="row">
+    <div class="col">
+      <label>输入 IP 或 IP:端口 列表（每行一个）：</label>
+      <textarea id="ipInput" placeholder="104.16.1.1:8443&#10;104.16.1.2:2096&#10;172.67.1.3（不写端口默认 443）"></textarea>
+    </div>
+    <div class="col">
+      <label>生成的批量节点链接（可直接复制导入 v2rayN）：</label>
+      <textarea id="nodeOutput" readonly></textarea>
+    </div>
+  </div>
+
+  <!-- 操作按钮栏 -->
+  <div class="btn-bar">
+    <button onclick="generateNodes()">批量生成节点链接</button>
+    <button class="secondary" onclick="copyText('nodeOutput')">一键复制结果</button>
+    <button type="button" class="outline" id="toggleDrawerBtn" onclick="toggleApiDrawer()">在线获取 IP ▾</button>
+    <span id="fetchStatus" class="status-text"></span>
+  </div>
+
+  <!-- 可折叠的在线获取面板 -->
+  <div id="apiDrawer" class="api-drawer">
+    <label>在线获取 IP:端口 接口地址（支持返回纯文本 txt 的 API）：</label>
+    <div class="input-group">
+      <input type="text" id="apiUrl" value="https://cf.mileet.com/api/export?only_alive=1&tls=1&limit=50&format=txt&port=8443">
+      <button type="button" id="fetchBtn" onclick="fetchOnlineIps()">立即拉取</button>
+    </div>
+    <div class="hint">可直接修改上方 URL 中的 port 或 limit 参数后点击“立即拉取”，结果将自动填入上方左侧输入框。</div>
+  </div>
+</div>
+
+<!-- 模块二：测速后反向提取 IP -->
+<div class="card">
+  <h3>2. 反向提取：从 v2rayN 导出的可用节点中提取纯 IP</h3>
+  <label>粘贴从 v2rayN 批量导出的可用节点链接（每行一条）：</label>
+  <textarea id="nodeInput" placeholder="在此粘贴 v2rayN 测速并删除无效节点后，Ctrl+C 复制出来的节点链接..."></textarea>
+
+  <div class="row">
+    <div class="col">
+      <label>提取出的纯 IP（去重，可直接写入域名 A 记录）：</label>
+      <textarea id="pureIpOutput" readonly></textarea>
+      <button onclick="extractIps()">提取 IP</button>
+      <button class="secondary" onclick="copyText('pureIpOutput')">复制纯 IP 列表</button>
+    </div>
+    <div class="col">
+      <label>提取出的 IP:端口（保留端口对照）：</label>
+      <textarea id="ipPortOutput" readonly></textarea>
+      <button class="secondary" onclick="copyText('ipPortOutput')">复制 IP:端口 列表</button>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <a href="https://www.076666.xyz/" target="_blank" rel="noopener noreferrer">官方博客</a> |
+  <a href="https://about.ikl.ink/" target="_blank" rel="noopener noreferrer">关于作者</a> |
+  <a href="https://thanks.ikl.ink/" target="_blank" rel="noopener noreferrer">捐赠</a>
+</footer>
+
+<script>
+// Base64 UTF-8 编解码辅助函数（兼容 vmess 节点备注中文）
+function b64EncodeUnicode(str) {
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode('0x' + p1)));
+}
+function b64DecodeUnicode(str) {
+  return decodeURIComponent(atob(str).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+}
+
+// 切换在线获取抽屉面板
+function toggleApiDrawer() {
+  const drawer = document.getElementById('apiDrawer');
+  const btn = document.getElementById('toggleDrawerBtn');
+  const isOpen = drawer.classList.toggle('open');
+  btn.textContent = isOpen ? '在线获取 IP ▴' : '在线获取 IP ▾';
+}
+
+// 在线获取 IP 列表（支持直连 + CORS 代理自动回退）
+async function fetchOnlineIps() {
+  const url = document.getElementById('apiUrl').value.trim();
+  const btn = document.getElementById('fetchBtn');
+  const statusEl = document.getElementById('fetchStatus');
+  if (!url) {
+    alert('请先填写接口地址');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '拉取中...';
+  statusEl.textContent = '正在请求接口...';
+
+  let rawText = '';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    rawText = await res.text();
+  } catch (directErr) {
+    try {
+      statusEl.textContent = '直连受跨域限制，正在通过中转获取...';
+      const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+      const proxyRes = await fetch(proxyUrl);
+      if (!proxyRes.ok) throw new Error('Proxy HTTP ' + proxyRes.status);
+      rawText = await proxyRes.text();
+    } catch (proxyErr) {
+      statusEl.textContent = '';
+      btn.disabled = false;
+      btn.textContent = '立即拉取';
+      alert('获取失败（可能是接口限制或网络异常），请检查链接是否可在浏览器直接打开。');
+      return;
+    }
+  }
+
+  const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  document.getElementById('ipInput').value = lines.join('\n');
+  statusEl.textContent = `已成功拉取 ${lines.length} 条记录`;
+  btn.disabled = false;
+  btn.textContent = '立即拉取';
+
+  if (document.getElementById('templateLink').value.trim()) {
+    generateNodes();
+  }
+}
+
+function parseIpLine(line) {
+  line = line.trim();
+  if (!line) return null;
+  if (line.startsWith('[')) {
+    const match = line.match(/^(\[[^\]]+\])(?::(\d+))?$/);
+    if (!match) return null;
+    return { host: match[1], port: match[2] || '443' };
+  }
+  const parts = line.split(':');
+  return { host: parts[0], port: parts[1] || '443' };
+}
+
+function generateNodes() {
+  const tpl = document.getElementById('templateLink').value.trim();
+  const lines = document.getElementById('ipInput').value.split(/\r?\n/);
+  if (!tpl) { alert('请先填入模板节点链接'); return; }
+
+  const results = [];
+  for (const rawLine of lines) {
+    const target = parseIpLine(rawLine);
+    if (!target) continue;
+
+    if (tpl.startsWith('vmess://')) {
+      try {
+        const jsonObj = JSON.parse(b64DecodeUnicode(tpl.slice(8)));
+        jsonObj.add = target.host.replace(/^\[|\]$/g, '');
+        jsonObj.port = parseInt(target.port, 10);
+        jsonObj.ps = (jsonObj.ps || 'Node') + `_${target.host}:${target.port}`;
+        results.push('vmess://' + b64EncodeUnicode(JSON.stringify(jsonObj)));
+      } catch (e) {
+        alert('VMess 模板解析失败，请检查链接格式');
+        return;
+      }
+    } else if (tpl.startsWith('vless://') || tpl.startsWith('trojan://')) {
+      const updated = tpl.replace(/(@)([^?#]+)(.*)/, (_, at, hostPort, rest) => {
+        const tag = `${target.host}:${target.port}`;
+        if (rest.includes('#')) {
+          return `${at}${tag}${rest}_${encodeURIComponent(tag)}`;
+        } else {
+          return `${at}${tag}${rest}#${encodeURIComponent(tag)}`;
+        }
+      });
+      results.push(updated);
+    } else {
+      alert('目前支持 vless://、trojan:// 和 vmess:// 协议模板');
+      return;
+    }
+  }
+  document.getElementById('nodeOutput').value = results.join('\n');
+}
+
+function extractIps() {
+  const lines = document.getElementById('nodeInput').value.split(/\r?\n/);
+  const pureIpSet = new Set();
+  const ipPortSet = new Set();
+
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+
+    if (line.startsWith('vmess://')) {
+      try {
+        const jsonObj = JSON.parse(b64DecodeUnicode(line.slice(8)));
+        if (jsonObj.add) {
+          pureIpSet.add(jsonObj.add);
+          ipPortSet.add(`${jsonObj.add}:${jsonObj.port || 443}`);
+        }
+      } catch (e) {}
+    } else if (line.startsWith('vless://') || line.startsWith('trojan://')) {
+      const match = line.match(/@(\[[^\]]+\]|[^:?#]+)(?::(\d+))?/);
+      if (match) {
+        const rawIp = match[1].replace(/^\[|\]$/g, '');
+        const port = match[2] || '443';
+        pureIpSet.add(rawIp);
+        ipPortSet.add(`${match[1]}:${port}`);
+      }
+    }
+  }
+
+  document.getElementById('pureIpOutput').value = Array.from(pureIpSet).join('\n');
+  document.getElementById('ipPortOutput').value = Array.from(ipPortSet).join('\n');
+}
+
+function copyText(id) {
+  const el = document.getElementById(id);
+  el.select();
+  document.execCommand('copy');
+  alert('已复制到剪贴板（共 ' + (el.value ? el.value.split('\n').length : 0) + ' 条）');
+}
+</script>
+</body>
+</html>
